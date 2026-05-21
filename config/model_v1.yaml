@@ -1,0 +1,16 @@
+version: 1
+
+fc1: [ 1024, 512 ]
+drop: .2
+
+graph:
+  c1: 300
+  c2: 128
+  e: 1.
+  n: 6
+  conv_type: GCNConv
+  drop: .2
+
+  class_list: config/graph/class_list.pkl
+  graph_data: config/graph/graph_data.pkl
+  map_obj2cls: config/graph/misc.pkl

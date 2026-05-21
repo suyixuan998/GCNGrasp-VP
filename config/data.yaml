@@ -1,0 +1,4 @@
+root: /media/tongzj/Data/Information/Data/dataset/TaskGrasp/taskgrasp
+# root: /home/tongzj/workbench/TaskGrasp/taskgrasp
+n_points: 4096
+bs_grasp: 25

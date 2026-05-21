@@ -1,0 +1,23 @@
+p_pcd_full: .5
+
+train:
+  seed: 2025
+  epochs: 200
+  batch_size: 8
+  # accum_grad: 60
+  output: runs
+
+  loss_weight:
+    tog: 1.
+
+  metric:
+    monitor: val/part/acc
+    mode: max
+    # patience: 50
+
+  optimizer:
+    type: AdamW
+    lr0: 0.001  # initial learning rate
+    lrf: 0.01  # final OneCycleLR learning rate (lr0 * lrf)
+    kwargs:
+      weight_decay: 0.  # optimizer weight decay

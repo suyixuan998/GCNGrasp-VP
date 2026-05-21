@@ -1,0 +1,46 @@
+version: 2
+width_multiplier: 1.
+
+
+input:
+  # Index corresponding to the gripper control point:
+  #  4 *         * 5
+  #    |    1    |
+  #  2 +----+----+ 3
+  #         |
+  #         |0
+  gripper:
+    n_pts: 6
+    center: 1
+    axis_z: [ 0, 1 ]  # flip
+    axis_x: [ 2, 3 ]
+    connections: [ [ 0, 1 ], [ 2, 3 ], [ 2, 4 ], [ 3, 5 ] ]
+
+  graph:
+    class_list: config/graph/class_list.pkl
+    graph_data: config/graph/graph_data.pkl
+    map_obj2cls: config/graph/misc.pkl
+
+
+model:
+  # PointNet++
+  pcd_encoder:
+    c2s_list: [ [ [ 16, 16, 32 ], [ 32, 32, 64 ] ],
+                [ [ 64, 64, 128 ], [ 64, 96, 128 ] ],
+                [ [ 128, 192, 256 ], [ 128, 192, 256 ] ],
+                [ 256, 512, 1024 ] ]
+    n2_list: [ 1024, 256, 64, 1 ]
+    k_list: [ [ 16, 32 ], [ 16, 32 ], [ 16, 32 ], 0 ]
+    r_list: [ [ .05, .1 ], [ .1, .2 ], [ .2, .4 ], 0 ]
+    c2s_list_neck: [ [ 512, 512 ], [ 512, 512 ], [ 512, 512 ] ]
+
+  graph_readout:
+    e: 1.
+    n: 6
+    drop: .2
+
+  grasp_scorer:
+    c2s: [ 256, 256 ]
+    c2s_head: [ 1024, 512 ]
+    k: 32
+    drop: .4

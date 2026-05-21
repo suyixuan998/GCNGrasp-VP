@@ -1,0 +1,16 @@
+# python==3.10, numpy<2, torch>=2.5.1
+
+matplotlib
+numpy<2
+nvitop
+open3d
+opencv-python
+pyyaml
+scikit-learn
+trimesh
+
+ema-pytorch
+lightning
+tensorboard
+torch-cluster   # -v --no-build-isolation
+torch-geometric

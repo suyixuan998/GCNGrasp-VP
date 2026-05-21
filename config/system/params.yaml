@@ -1,0 +1,42 @@
+transform: config/system/franka_tf.yaml
+weight_tog: 1.
+
+
+tog_model:
+  path: runs/train/v2-aff/o2    # best
+  device: cuda
+  n_points_min: 1024
+  # tta: 8        # bad for some objects
+
+
+scene:
+  grasp_nms_r: .02
+  grasp_w_offset: .02
+  vis_cam_width: .04
+  vis_traj_thickness: .003
+
+  # noisy pcd processor
+  nn_radius: .005
+  nn_k_thresh: 15
+  # full pcd processor
+  voxel_size: .007
+
+
+planner:
+  type: ObjectIGViewPlanner
+
+  border_margin: .1
+  max_stride: .80    # hard constraint
+  min_stride: .10    # discard steps smaller than this
+  n_candidates: 50
+  dist_obs: .3
+  elev_range: [ .15, 1.2 ]
+
+  init_stride: .20
+  init_frames: 1
+  thresh_ig: .9
+  loss_weight:
+    orient: 1.
+    occ: .6
+    elev: .2
+    # stride: .5

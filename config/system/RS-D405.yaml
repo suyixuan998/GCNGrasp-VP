@@ -1,0 +1,9 @@
+# https://www.intel.com/content/www/us/en/products/sku/229218/intel-realsense-depth-camera-d405/specifications.html
+
+type: Pinhole
+img_size: [ 640, 480 ]  # [height, width]
+intrinsics: [ 433.483, 432.842, 319.206, 244.63 ]  # fx, fy, cx, cy
+dist_coeffs: [ -0.0544582, 0.0619349, -0.000179835, 0.00142728, -0.0208443 ]
+
+depth_scale: 10000
+depth_range: [ 0.15, 0.8 ]

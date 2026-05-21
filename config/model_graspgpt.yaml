@@ -1,0 +1,5 @@
+version: gpt
+
+embedding: [ 768, 128 ]
+fc1: [ 1024, 512, 300 ]
+drop: .2

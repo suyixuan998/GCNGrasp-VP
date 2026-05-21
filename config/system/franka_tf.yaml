@@ -1,0 +1,28 @@
+# Directed Acyclic Graph (DAG)
+# dst -> src (child)
+base:
+  world: eye
+
+# ORB-SLAM2
+camera:
+  imu: [ 0, 0, 0, 90, 0, 90 ]
+
+# Franka Panda
+hand:
+  robotiq: [ 0, 0, 0, 0, 0, 42 ]
+
+robotiq:
+  # D435i Connector: https://github.com/dougsm/mvp_grasp/tree/master/cad
+  # camera: [ 0, -1, 0, 0.03247901052236557,
+  #           1, 0, 0, -0.01992672309279442,
+  #           0, 0, 1, 0.047088995575904846 ]
+
+  # D405
+  camera: [ 0.048098, -0.985089, -0.165184,  0.06595,
+            0.998825,  0.048422,  0.002063, -0.000357,
+            0.005966, -0.165089,  0.986261,  0.048961 ]
+
+  # Contact-GraspNet
+  grasp: [ 0, -1, 0, 0,
+           1, 0, 0, 0,
+           0, 0, 1, 0.0869 ]
