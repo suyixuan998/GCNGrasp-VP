@@ -113,6 +113,8 @@ class BaseServer(LocalInvoker):
         t0 = time.time()
         ret = await self.invoke_async(func, *data["args"], **data["kwargs"])
         info["t_invoke"] = round(time.time() - t0, 3)
+
+        if isinstance(ret, Exception): info["error"] = ret
         self.loginfo(f"{func}: {info}")
         return ret
 

@@ -41,12 +41,14 @@ class Package:
                 require: list[str],
                 collect: bool = True,
                 empty_init: bool = False) -> Path:
-        if collect: require = self.collect_require(require)
-
         dst = Path(dst)
         dst = dst / self.name if not dst.name == self.name else dst
         # input(f"Press Enter to install '{self.name}' to '{dst.resolve()}': ")
 
+        # collect dependency
+        if collect: require = self.collect_require(require)
+
+        # install
         for p in require:
             s, d = (self.source / p).resolve(), (dst / p).resolve()
             if s.is_file():

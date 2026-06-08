@@ -78,14 +78,16 @@ def normalize_rotation(R: np.ndarray) -> np.ndarray:
     return u @ vt
 
 
-def rota_toward_identity(R: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-    """ Find the rotation matrix that rotates R to identity. """
+def rota_toward_identity(R: np.ndarray) -> np.ndarray:
+    """
+    Find the rotation matrix that rotates R to identity.
+    :return: R', where R' p = (R R'^T) (R' p).
+    """
     perm = scipy.optimize.linear_sum_assignment(np.abs(R), maximize=True)[1]
-    R_new = R[:, perm]
-    sign = np.sign(np.diag(R_new))
+    sign = np.sign(np.diag(R[:, perm]))
     R_pcd = np.zeros((3, 3))
     R_pcd[np.arange(3), perm] = 1.
-    return R_new * sign, R_pcd * sign[:, None]
+    return R_pcd * sign[:, None]
 
 
 class SE3:
@@ -192,7 +194,12 @@ class SE3:
         vec = np.zeros([*T.shape[:-2], 7], dtype=np.float32)
         assert vec.ndim <= 2, "Only support single matrix or batch of matrices."
         vec[..., :3] = T[..., :3, 3]
-        vec[..., 3:] = SO3.from_matrix(T[..., :3, :3]).as_quat(scalar_first=scalar_first)
+
+        try:
+            vec[..., 3:] = SO3.from_matrix(T[..., :3, :3]).as_quat(scalar_first=scalar_first)
+        except TypeError:
+            vec[..., 3:] = SO3.from_matrix(T[..., :3, :3]).as_quat()
+            if scalar_first: vec[..., 3:] = vec[..., [6, 3, 4, 5]]
         return vec
 
     @classmethod
@@ -201,9 +208,13 @@ class SE3:
                 scalar_first: bool = True) -> np.ndarray:
         mat = np.zeros([*T.shape[:-1], 4, 4], dtype=np.float32)
         assert mat.ndim <= 3, "Only support single vector or batch of vectors."
-        mat[..., :3, 3] = T[..., :3]
-        mat[..., :3, :3] = SO3.from_quat(T[..., 3:], scalar_first=scalar_first).as_matrix()
         mat[..., -1, -1] = 1
+        mat[..., :3, 3] = T[..., :3]
+
+        try:
+            mat[..., :3, :3] = SO3.from_quat(T[..., 3:], scalar_first=scalar_first).as_matrix()
+        except TypeError:
+            mat[..., :3, :3] = SO3.from_quat(T[..., [4, 5, 6, 3]] if scalar_first else T[..., 3:]).as_matrix()
         return mat
 
 

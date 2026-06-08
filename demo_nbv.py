@@ -15,7 +15,9 @@ WORKSPACE = IrregularWorkspace("config/system/franka_ws.npy", r_decay=.9)
 
 
 def get_ins_cvt(database=None):
-    from gcngrasp.dataset.task_grasp import Database, InstructionConverter
+    from gcngrasp.dataset.task_grasp import Database
+    from gcngrasp.utils.instruct_cvt import InstructionConverter
+
     if database is None:
         database = Database(Path("config/data.yaml").yaml())
     return InstructionConverter(database, "qwen3.5-flash-2026-02-23")

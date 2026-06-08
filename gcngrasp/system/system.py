@@ -22,10 +22,11 @@ class System:
 
     def get_action(self,
                    scene: Scene,
-                   plan_nbv: bool = True) -> Action:
+                   plan_nbv: bool = True,
+                   thresh_grasp: float = .9) -> Action:
         """ Plan next best view or search for grasp """
         tog, _ = scene.tog_poses
-        act = Action.from_grasp(tog[tog.mask_by_relative_thresh(.9)].Tgx)
+        act = Action.from_grasp(tog[tog.mask_by_relative_thresh(thresh_grasp)].Tgx)
 
         # next best view
         if plan_nbv:

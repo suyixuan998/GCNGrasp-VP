@@ -1,7 +1,9 @@
+# https://www.intel.com/content/www/us/en/products/sku/190004/intel-realsense-depth-camera-d435i/specifications.html
+
 type: Pinhole
 img_size: [ 640, 480 ]  # width, height
-intrinsics: [ 605.9322509765625, 605.4835815429688, 320.8470458984375, 240.42042541503906 ]  # fx, fy, cx, cy
+intrinsics: [ 609.53564453125, 608.3394165039062, 322.2436828613281, 241.46615600585938 ]  # fx, fy, cx, cy
 dist_coeffs: [ ]
 
 depth_scale: 1000
-depth_range: [ 0.1, 1.2 ]
+depth_range: [ 0.15, 3 ]

@@ -1,14 +1,15 @@
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Callable
 
 import numpy as np
-from pathlib import Path
 
 from .third_party.contact_graspnet_pytorch import config_utils
 from .third_party.contact_graspnet_pytorch.checkpoints import CheckpointIO
 from .third_party.contact_graspnet_pytorch.contact_grasp_estimator import GraspEstimator
 from .utils import grasp_pose
+from .utils import pose_tf
 from .utils.camera import Frame
 
 GRIPPER = grasp_pose.TwoFingerGripper(len_finger=.0469, len_handle=.0584, thickness=.003)
@@ -26,12 +27,17 @@ class ContactGraspNet:
         CheckpointIO(checkpoint_dir=str(ckpt_dir / "checkpoints"), model=self.estimator.model).load('model.pt')
 
     def __call__(self,
-                 pcd: np.ndarray) -> grasp_pose.TwoFingerGrasp:
+                 pcd: np.ndarray,
+                 Tcw: np.ndarray = None) -> grasp_pose.TwoFingerGrasp:
         """
         :param pcd: point cloud with shape (N, 3)
         """
-        Tgc, score, lft, w = (x[-1] for x in self.estimator.predict_scene_grasps(pcd))
+        if Tcw is not None:
+            pcd = pose_tf.SE3.transform_pcd(np.linalg.inv(Tcw), pcd)
+
+        Tgc, score, _lft, w = (x[-1] for x in self.estimator.predict_scene_grasps(pcd))
         Tgc[:, :3, 3] += Tgc[:, :3, 2] * GRIPPER.len_finger
+        if Tcw is not None: Tgc = Tcw @ Tgc
 
         gposes = grasp_pose.TwoFingerGrasp(Tgc, w, score, gripper=GRIPPER)
         return gposes[np.argsort(gposes.score)[::-1]]

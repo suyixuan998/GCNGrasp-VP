@@ -53,11 +53,11 @@ def concat_to_trimesh(geos: list[o3d.geometry.Geometry3D]) -> trimesh.Scene:
 def correct_obb(box: o3d.geometry.OrientedBoundingBox) -> o3d.geometry.OrientedBoundingBox:
     from .pose_tf import rota_toward_identity
 
-    R, R_pcd = rota_toward_identity(np.asarray(box.R))
+    R_pcd = rota_toward_identity(np.asarray(box.R))
     return o3d.geometry.OrientedBoundingBox(
         center=np.asarray(box.center),
-        R=R,
-        extent=box.extent @ np.abs(R_pcd.T)
+        R=box.R @ R_pcd.T,
+        extent=box.extent @ np.abs(R_pcd).T
     )
 
 
@@ -84,8 +84,9 @@ def create_arrow(start: np.ndarray,
 
 
 def create_bbox(bbox: o3d.geometry.OrientedBoundingBox,
-                thickness: float) -> list[o3d.geometry.Geometry3D]:
-    return create_lineset(np.asarray(bbox.get_box_points()), thickness, lines=BBOX_LINES)
+                thickness: float) -> o3d.geometry.TriangleMesh:
+    lines = create_lineset(np.asarray(bbox.get_box_points()), thickness, lines=BBOX_LINES)
+    return sum(lines[1:], lines[0])
 
 
 def create_camera(Tcw: np.ndarray,
@@ -122,6 +123,12 @@ def create_camera(Tcw: np.ndarray,
     colors = np.stack([color_far, color_near], axis=0).repeat(4, axis=0)
     trimesh.vertex_colors = o3d.utility.Vector3dVector(colors)
     return trimesh.transform(Tcw)
+
+
+def create_coord(T: np.ndarray = None,
+                 size: float = .1) -> o3d.geometry.TriangleMesh:
+    T = np.eye(4) if T is None else T
+    return o3d.geometry.TriangleMesh.create_coordinate_frame(size=size).transform(T)
 
 
 def create_lineset(points: np.ndarray,
@@ -243,10 +250,19 @@ def from_trimesh(mesh: trimesh.Trimesh) -> o3d.geometry.TriangleMesh:
     return o3d_mesh
 
 
+def minimum_2d_bbox_orientation(pcd: np.ndarray) -> np.ndarray:
+    from shapely.geometry import MultiPoint
+
+    rect = MultiPoint(pcd).minimum_rotated_rectangle
+    corners = np.array(rect.exterior.coords)[:-1]
+    R = np.stack([corners[0], corners[2]]) - corners[1]
+    R /= np.linalg.norm(R, axis=-1, keepdims=True)
+    return R.T
+
+
 def pcd_combination(pcds: list[np.ndarray],
                     r: int = None,
-                    duplicate: bool = True
-                    ) -> list[np.ndarray]:
+                    duplicate: bool = True) -> list[np.ndarray]:
     res = pcds.copy()
     for k in range(2, (r or len(pcds)) + 1):
         for x in itertools.combinations(pcds, k):
@@ -259,6 +275,34 @@ def pcd_combination(pcds: list[np.ndarray],
 
             res.append(y)
     return res
+
+
+def pcd_registration(src: o3d.geometry.PointCloud,
+                     dst: o3d.geometry.PointCloud,
+                     T: np.ndarray = None,
+                     radius: float = .05) -> tuple[float, np.ndarray]:
+    """
+    Point-to-point ICP registration
+    :return: fitness, T_src_dst
+    """
+    o3d_reg = o3d.pipelines.registration
+    # coarse
+    if T is None:
+        src_fpfh, dst_fpfh = map(lambda pcd: o3d_reg.compute_fpfh_feature(
+            pcd, o3d.geometry.KDTreeSearchParamHybrid(radius=radius, max_nn=100)
+        ), (src, dst))
+        result: o3d_reg.RegistrationResult = o3d_reg.registration_ransac_based_on_feature_matching(
+            src, dst, src_fpfh, dst_fpfh, True, radius,
+            estimation_method=o3d_reg.TransformationEstimationPointToPoint(),
+            checkers=[o3d_reg.CorrespondenceCheckerBasedOnDistance(radius)],
+        )
+        T = result.transformation
+    # fine tune
+    result: o3d_reg.RegistrationResult = o3d_reg.registration_icp(
+        src, dst, radius, T,
+        estimation_method=o3d_reg.TransformationEstimationPointToPoint(),
+    )
+    return result.fitness, result.transformation.astype(np.float32)
 
 
 def paint_by_cmap(geos: list[o3d.geometry.Geometry3D],
@@ -333,6 +377,25 @@ def to_trimesh(geo) -> trimesh.Trimesh:
         raise TypeError(f"Unsupported type: {type(geo)}")
 
 
+def transform_bbox(T: np.ndarray,
+                   bbox: o3d.geometry.OrientedBoundingBox) -> o3d.geometry.OrientedBoundingBox:
+    return bbox.rotate(T[:3, :3], center=np.zeros(3)).translate(T[:3, 3])
+
+
+def zaxis_aligned_bbox(pcd: o3d.geometry.PointCloud) -> o3d.geometry.OrientedBoundingBox:
+    pcd = np.asarray(pcd.points, dtype=np.float32)
+    R = zaxis_aligned_bbox_orientation(pcd)
+    pcd = pcd @ R
+    bounds = np.stack([pcd.min(axis=0), pcd.max(axis=0)])
+    return o3d.geometry.OrientedBoundingBox(R @ ((bounds[0] + bounds[1]) / 2), R, bounds[1] - bounds[0])
+
+
+def zaxis_aligned_bbox_orientation(pcd: np.ndarray) -> np.ndarray:
+    R = np.eye(3)
+    R[:2, :2] = minimum_2d_bbox_orientation(pcd[:, :2])
+    return R
+
+
 @dataclass
 class MeshRepository:
     save_dir: Path
@@ -370,7 +433,9 @@ class PointCloudProcessor:
     def __post_init__(self):
         self.rmr_out_kwargs = dict(radius=self.nn_radius, nb_points=self.nn_k_thresh)
 
-    def __call__(self, pcd: o3d.geometry.PointCloud) -> o3d.geometry.PointCloud:
+    def __call__(self,
+                 pcd: o3d.geometry.PointCloud,
+                 R: np.ndarray = None) -> o3d.geometry.PointCloud:
         if self.voxel_size is not None:
             pcd = pcd.voxel_down_sample(self.voxel_size)
 
@@ -378,7 +443,8 @@ class PointCloudProcessor:
             pcd = pcd.remove_radius_outlier(**self.rmr_out_kwargs)[0]
 
         if self.std_ratio:
-            pcd_np = np.asarray(pcd.points)
+            R = pcd.get_minimal_oriented_bounding_box().R if R is None else R
+            pcd_np = np.asarray(pcd.points) @ R
             pcd = pcd.select_by_index(np.where(
                 np.all(np.abs(pcd_np - pcd_np.mean(axis=0)) < self.std_ratio * pcd_np.std(axis=0), axis=1)
             )[0])

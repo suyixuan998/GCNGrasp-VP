@@ -6,7 +6,7 @@
 conda create -n gcngraspvp python=3.10
 conda activate gcngraspvp
 
-pip install numpy<2 torch==2.5.1 torchvision==0.20.1 torchaudio==2.5.1 --index-url https://download.pytorch.org/whl/cu124
+pip install "numpy<2" torch==2.5.1 torchvision==0.20.1 torchaudio==2.5.1 --index-url https://download.pytorch.org/whl/cu124
 pip install -r gcngrasp/requirements.txt -v --no-build-isolation
 
 # For demos

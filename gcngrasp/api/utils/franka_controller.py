@@ -23,14 +23,16 @@ class PolymetisRobot(polymetis.RobotInterface):
 
     def move(self,
              goal: np.ndarray,
-             vel: np.ndarray = None) -> bool:
+             vel: np.ndarray = None,
+             success_always: bool = True) -> bool:
         if vel is None:
 
             # ee_pose
             if goal.ndim == 2:
                 vec = torch.from_numpy(pose_tf.SE3.mat2vec(goal, scalar_first=False))
                 self.move_to_ee_pose(vec[:3], vec[3:])
-                return pose_tf.SE3.isin(goal[None], self.Teb()[None], thresh_pos=THRESH_POS, thresh_rot=THRESH_ROT).item()
+                return success_always or pose_tf.SE3.isin(
+                    goal[None], self.Teb()[None], thresh_pos=THRESH_POS, thresh_rot=THRESH_ROT).item()
 
             # joint
             elif goal.ndim == 1:
@@ -53,7 +55,7 @@ class PolymetisRobot(polymetis.RobotInterface):
             )
             self.send_torch_policy(policy)
 
-        return np.abs(goal.numpy() - self.joints()).max() < THRESH_JOINT
+        return success_always or np.abs(goal.numpy() - self.joints()).max() < THRESH_JOINT
 
     def Teb(self) -> np.ndarray:
         pos, quat = self.get_ee_pose()

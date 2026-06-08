@@ -73,6 +73,7 @@ class RobotController:
 
     def get_frame(self) -> Frame:
         (t, color, depth), Teb = self.rs(), self.robot.Teb()
+        assert Teb is not None
         pose_tf.TFmanager.register(Teb, "hand", "base")
         return Frame(
             camera=self.camera,
@@ -90,12 +91,12 @@ class RobotController:
 class CuRoboWrapper:
     invoker: func_invoker.BaseInvoker
     z_ground: float = .05
-    vel_scale: float = .6
+    vel_scale: float = .1
 
     def __post_init__(self):
         from gcngrasp.api.utils.curobo_planning import CuRoboPlanner, CuRoboController
 
-        self.planner = CuRoboPlanner(interp_dt=5e-4, scene_cfg=self.z_ground)
+        self.planner = CuRoboPlanner(interp_dt=8e-4, scene_cfg=self.z_ground, max_goalset=100)
         self.controller = CuRoboController(
             self.planner,
             func_joints=self.invoker.joints,

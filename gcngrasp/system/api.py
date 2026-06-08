@@ -10,10 +10,11 @@ try:
     from ..api.grounded_sam import GroundedSAM
 
     cgn = ContactGraspNet()
-    gsam = GroundedSAM(gdino_kwargs=dict(box_thresh=.3), sam_kwargs=dict(encoder="small"))
+    gsam = GroundedSAM(gdino_kwargs=dict(box_thresh=.2), sam_kwargs=dict(encoder="small"))
 
     FUNCTIONS.update({
-        "cgn": cgn.process_frame,
+        "cgn": cgn,
+        "cgn_frame": cgn.process_frame,
         "gsam": gsam,
     })
 except ImportError as e:

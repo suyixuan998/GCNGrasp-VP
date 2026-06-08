@@ -5,20 +5,20 @@ from dataclasses import dataclass, field
 from functools import cached_property
 from typing import Callable
 
+import curobo.scene as cusc
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
 import trimesh
-
-import curobo.scene as cusc
+from curobo._src.robot.types.joint_limits import JointLimits
 from curobo._src.state.state_joint_ops import stack_joint_states
-from curobo.config_io import resolve_config, join_path, load_yaml
+from curobo.config_io import join_path, load_yaml, resolve_config
 from curobo.content import get_scene_configs_path
 from curobo.inverse_kinematics import InverseKinematics, InverseKinematicsResult
 from curobo.kinematics import Kinematics
-from curobo.motion_planner import MotionPlanner, MotionPlannerCfg, GraspPlanResult
+from curobo.motion_planner import GraspPlanResult, MotionPlanner, MotionPlannerCfg
 from curobo.trajectory_optimizer import TrajectoryOptimizerResult
-from curobo.types import DeviceCfg, Pose, JointState, GoalToolPose
+from curobo.types import DeviceCfg, GoalToolPose, JointState, Pose
 
 os.environ["CUROBO_TORCH_COMPILE_DISABLE"] = "1"
 
@@ -84,6 +84,7 @@ def curobo_to_ros(cudata, *args, **kwargs):
 
 
 def process_result(result, *args, **kwargs):
+    if not result: return
     success = result.success
     if not success.any(): return
 
@@ -170,6 +171,11 @@ class CuRoboPlanner:
         self.scene_cfg = cusc.Scene.create_collision_support_world(self.scene_cfg)
 
         assert len(self.motion_planner.tool_frames) == 1, "Only single tool frame is supported."
+        self.joint_limits.position += .01 * self.device_cfg.to_device(torch.tensor([1, -1]))[:, None]
+
+    def clean_cache(self):
+        for attr in ("motion_planner", "motion_planner_cspace"):
+            if attr in self.__dict__: delattr(self, attr)
 
     @property
     def default_js(self) -> torch.Tensor:
@@ -255,16 +261,7 @@ class CuRoboPlanner:
             plt.axis("equal")
             plt.pause(1e-3)
 
-    @cached_property
-    def ik_solver(self) -> InverseKinematics:
-        return self.motion_planner.ik_solver
-
-    @cached_property
-    def kinematics(self) -> Kinematics:
-        return self.motion_planner.kinematics
-
-    @cached_property
-    def motion_planner(self) -> MotionPlanner:
+    def get_motion_planner(self) -> MotionPlanner:
         mp_cfg = MotionPlannerCfg.create(
             robot=self.robot_cfg,
             scene_model=self.scene_cfg,
@@ -273,8 +270,29 @@ class CuRoboPlanner:
         )
         mp_cfg.trajopt_solver_config.interpolation_dt = self.interp_dt
         mp = MotionPlanner(mp_cfg)
-        mp.warmup(num_warmup_iterations=5)
         return mp
+
+    @property
+    def ik_solver(self) -> InverseKinematics:
+        return self.motion_planner.ik_solver
+
+    @property
+    def joint_limits(self) -> JointLimits:
+        return self.kinematics.get_joint_limits()
+
+    @property
+    def kinematics(self) -> Kinematics:
+        return self.motion_planner.kinematics
+
+    @cached_property
+    def motion_planner(self) -> MotionPlanner:
+        mp = self.get_motion_planner()
+        mp.warmup(enable_graph=True, num_warmup_iterations=5)
+        return mp
+
+    @cached_property
+    def motion_planner_cspace(self) -> MotionPlanner:
+        return self.get_motion_planner()
 
     def plan(self,
              q_start: torch.Tensor,
@@ -285,13 +303,14 @@ class CuRoboPlanner:
 
         # function
         func = {
-            JointState: self.motion_planner.plan_cspace,
+            JointState: self.motion_planner_cspace.plan_cspace,
             GoalToolPose: self.motion_planner.plan_pose,
         }[type(goal)]
 
         # process
         result = func(goal, q_start)
-        return process_result(result, self, vis_cfg)
+        result = process_result(result, self, vis_cfg)
+        return self.process_js(result) if result else None
 
     def plan_goalset(self,
                      q_start: torch.Tensor,
@@ -301,8 +320,9 @@ class CuRoboPlanner:
         goal = self.process_goal(goal)
 
         # process
-        result = self.motion_planner.plan_pose(q_start, goal)
-        return process_result(result, self, vis_cfg)
+        result = self.motion_planner.plan_pose(goal, q_start)
+        result = process_result(result, self, vis_cfg)
+        return self.process_js(result) if result else None
 
     def plan_grasp(self,
                    q_start: torch.Tensor,
@@ -310,9 +330,11 @@ class CuRoboPlanner:
                    d_approach: float = .1,
                    d_retract: float = .1,
                    is_lift: bool = False,
-                   vis_cfg: PlanVisConfig = None):
+                   vis_cfg: PlanVisConfig = None) -> list[JointState]:
         q_start = JointState.from_position(q_start[None]).to(self.device_cfg)
         goal = self.process_goal(goal)
+        # FIXME: black magic
+        _x = self.motion_planner.plan_pose(goal, q_start)
 
         # process
         result = self.motion_planner.plan_grasp(
@@ -322,7 +344,8 @@ class CuRoboPlanner:
             plan_grasp_to_lift=d_retract > 0,
             grasp_lift_in_tool_frame=not is_lift,
         )
-        return process_result(result, self, vis_cfg)
+        result = process_result(result, self, vis_cfg)
+        return list(map(self.process_js, result)) if result else None
 
     def process_goal(self,
                      goal: torch.Tensor) -> GoalToolPose:
@@ -338,6 +361,9 @@ class CuRoboPlanner:
         else:
             raise ValueError(f"Invalid goal shape: {goal.shape}")
 
+    def process_js(self, q: torch.Tensor) -> torch.Tensor:
+        return q[..., :self.kinematics.dof]
+
     def sample_states(self,
                       n: int) -> torch.Tensor:
         return self.ik_solver.sample_configs(n)
@@ -345,7 +371,7 @@ class CuRoboPlanner:
     def scene_robot(self,
                     q: torch.Tensor,
                     as_trimesh: bool = True) -> cusc.Scene | trimesh.Scene:
-        q = self.device_cfg.to_device(q)[..., :self.kinematics.dof]
+        q = self.process_js(self.device_cfg.to_device(q))
         scene = cusc.Scene(sphere=self.kinematics.get_robot_as_spheres(q)[0])
         return cusc.Scene.get_scene_graph(scene) if as_trimesh else scene
 
@@ -356,19 +382,28 @@ class CuRoboPlanner:
     def solve_fk(self,
                  q: torch.Tensor) -> torch.Tensor:
         """ Forward kinematics """
-        q = JointState.from_position(q)
+        q = JointState.from_position(q).to(self.device_cfg)
         kin_state = self.kinematics.compute_kinematics(q).tool_poses
         return kin_state.get_link_pose(self.tool_frames[0]).get_matrix()
 
     def solve_ik(self,
                  goal: Pose) -> InverseKinematicsResult:
-        """ Inverse kinematics """
         goal = self.process_goal(goal)
         return self.ik_solver.solve_pose(goal)
 
     @property
     def tool_frames(self) -> list[str]:
         return self.motion_planner.tool_frames
+
+    def update_scene(self,
+                     scene: cusc.Scene,
+                     clear: bool = True):
+        if clear:
+            self.scene_cfg = scene
+        else:
+            for o in scene.objects:
+                self.scene_cfg.add_obstacle(o)
+        self.clean_cache()
 
 
 @dataclass
@@ -378,8 +413,8 @@ class CuRoboController:
     func_grip: Callable[[bool], bool]
     func_move: Callable[[JointState], bool]
 
-    def go_home(self) -> bool:
-        return self.move(self.planner.default_js)
+    def go_home(self, **kwargs) -> bool:
+        return self.move(self.planner.default_js, **kwargs)
 
     def grasp(self, Tebs: torch.Tensor, **kwargs) -> bool:
         Tebs = torch.as_tensor(Tebs)
@@ -406,23 +441,38 @@ class CuRoboController:
                 len(plans) == 1 or self.func_move(plans[1])
         )
 
+    def to_trimesh(self) -> trimesh.Scene:
+        return trimesh.util.concatenate(self.planner.scene_robot(self.joints()[None]), self.planner.scene_world())
+
     def Teb(self) -> torch.Tensor:
-        return torch.inverse(self.planner.solve_fk(self.joints())[0])
+        return self.planner.solve_fk(self.joints())[0]
+
+
+def get_fake_robot(default_js: torch.Tensor) -> dict:
+    return dict(
+        func_joints=lambda: default_js,
+        func_move=lambda js: print("Move!") or True,
+        func_grip=lambda b: print(f"Grip({b})!") or True,
+    )
 
 
 if __name__ == '__main__':
-    print_and_ret = lambda x: print("success!") or True
+    torch.set_printoptions(precision=4, sci_mode=False)
 
     planner = CuRoboPlanner(scene_cfg=.05, interp_dt=5e-4, max_goalset=10)
+    # print(planner.joint_limits), exit()
     vis_cfg = PlanVisConfig()
-    controller = CuRoboController(planner, func_joints=lambda: planner.default_js,
-                                  func_move=print_and_ret, func_grip=print_and_ret)
+    controller = CuRoboController(planner, **get_fake_robot(planner.default_js))
     # vis_cfg.visualize(planner.default_js[None], planner).show()
+    Teb = np.array([[-0.654509, 0.7269053, -0.207912, 0.5],
+                    [-0.139120, 0.154508, 0.978148, -0.3],
+                    [0.743145, 0.669131, 0., 0.65],
+                    [0.0, 0.0, 0.0, 1.0]], dtype=np.float32)
 
     for i in range(1):
         q = planner.sample_states(planner.max_goalset)
         goal = planner.solve_fk(q)
 
-        controller.move(goal[2], vis_cfg=vis_cfg)
-        # planner.plan(q[0], q[1], vis_cfg=vis_cfg)
         controller.grasp(goal, vis_cfg=vis_cfg, is_lift=True, d_retract=.1)
+        controller.move(Teb, vis_cfg=vis_cfg)
+        controller.move(q[2], vis_cfg=vis_cfg)

@@ -204,6 +204,9 @@ class Camera:
                 (depth_or_file >= self.depth_range[0]) & (depth_or_file <= self.depth_range[1]),
                 depth_or_file, 0
             )
+            valid_radio = (depth_or_file > 0).astype(np.float32).mean().item()
+            if valid_radio < .05:
+                warnings.warn(f"Depth map has too few valid points ({valid_radio:.2%}).")
         return depth_or_file
 
     def render_depth(self,

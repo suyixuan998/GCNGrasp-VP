@@ -31,21 +31,18 @@ def extract_frame_metadata(frame: Frame,
         frame.metadata["dets"] = dets = sve.refine_masks_by_ns(dets, frame.pointmap, ksize=3, radius=0.02, nb_neighbors=7)
         assert len(dets) > 0
 
-    if pcd_processor:
-        # region of interest
+    # extract grasps
+    if pcd_processor and not frame.metadata.get("grasps"):
         pcd = frame.to_pcd(mask=dets.mask[0])
         if pcd_processor: pcd = pcd_processor(pcd)
         pcd = get_pcd_array(pcd)
+
         center = pcd.mean(axis=0)
         roi = np.append(
-            (frame.Twc @ np.append(center, 1))[:3],
-            2 * np.linalg.norm(pcd - center, axis=-1).max()
+            (frame.Twc @ np.append(center, 1))[:3], 2 * np.linalg.norm(pcd - center, axis=-1).max()
         )
-
-        # extract grasps
-        if not frame.metadata.get("grasps"):
-            with Timer("api/ContactGraspNet"):
-                frame.metadata["grasps"] = FUNC_API("cgn", frame, xyzr=roi, pcd_processor=pcd_processor)
+        with Timer("api/ContactGraspNet"):
+            frame.metadata["grasps"] = FUNC_API("cgn_frame", frame, xyzr=roi, pcd_processor=pcd_processor)
 
 
 def get_pcd_array(pcd: o3d.geometry.PointCloud) -> np.ndarray:
@@ -115,7 +112,10 @@ class Scene:
                 pcd_abs.paint_uniform_color([0, 0, 1.])
                 o3d.visualization.draw_geometries([pcd_abs, frame.to_pcd()])
 
-        extract_frame_metadata(frame, pcd_processor=self.noisy_pcd_processor)
+        pcd_processor = (
+            lambda pcd: self.noisy_pcd_processor(pcd) + self.pcd_obj
+        ) if self.config["scene"]["grasp_infer_full"] else self.noisy_pcd_processor
+        extract_frame_metadata(frame, pcd_processor=pcd_processor)
 
         with Timer("scene/process_pcd"):
             self.add_pcd(frame)

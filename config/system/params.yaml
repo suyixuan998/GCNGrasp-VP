@@ -10,6 +10,7 @@ tog_model:
 
 
 scene:
+  grasp_infer_full: false
   grasp_nms_r: .02
   grasp_w_offset: .02
   vis_cam_width: .04
