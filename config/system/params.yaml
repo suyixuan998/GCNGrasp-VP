@@ -3,7 +3,7 @@ weight_tog: 1.
 
 
 tog_model:
-  path: runs/train/v2-aff/o2    # best
+  path: TongZJ/GCNGrasp-v2   # runs/train/v2-aff/o2
   device: cuda
   n_points_min: 1024
   # tta: 8        # bad for some objects

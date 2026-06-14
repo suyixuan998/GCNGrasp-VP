@@ -3,6 +3,7 @@ from functools import cached_property, partial
 from typing import Callable, Type
 
 from .api import Path
+from .api.utils import huggingface_model_path
 
 
 def get_model_config(version: str) -> str:
@@ -123,6 +124,10 @@ class ConfigCollector:
     @classmethod
     def from_path(cls, path: Path):
         path = Path(path)
+        # huggingface
+        if not path.exists():
+            path = huggingface_model_path(str(path))
+        # local
         ckpt_path = path / "checkpoints"
         return cls(
             model_file=next(path.glob("model*.yaml")),

@@ -1,10 +1,9 @@
-from pathlib import Path
-
 import numpy as np
 from langchain_core.messages import HumanMessage
 from langchain_openai import ChatOpenAI
 from pydantic import BaseModel, Field
 
+from ..api import Path
 from ..api.utils import chat_tool
 from ..dataset import task_grasp
 
@@ -23,8 +22,10 @@ class InstructionConverter:
     tasks = property(lambda self: self.database.tasks)
 
     def __init__(self,
-                 database: task_grasp.Database,
-                 model: str):
+                 model: str,
+                 database: task_grasp.Database = None):
+        if database is None:
+            database = task_grasp.Database(Path("config/data.yaml").yaml())
         self.database = database
         self.in_prompt = Path("config/system/func_ins_cvt.md").read_text().format
 

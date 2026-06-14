@@ -14,15 +14,6 @@ ASSETS = list(Path("assets").iterdir())
 WORKSPACE = IrregularWorkspace("config/system/franka_ws.npy", r_decay=.9)
 
 
-def get_ins_cvt(database=None):
-    from gcngrasp.dataset.task_grasp import Database
-    from gcngrasp.utils.instruct_cvt import InstructionConverter
-
-    if database is None:
-        database = Database(Path("config/data.yaml").yaml())
-    return InstructionConverter(database, "qwen3.5-flash-2026-02-23")
-
-
 def offline_test(config: dict,
                  frame: Frame,
                  args: list):
@@ -46,5 +37,4 @@ def offline_test(config: dict,
 if __name__ == '__main__':
     CONFIG = process_config("config/system/params.yaml")
 
-    # print(get_ins_cvt()("use the pan to pour"))
     offline_test(CONFIG, *virtual_robot.frame_from_folder(ASSETS[1]))
