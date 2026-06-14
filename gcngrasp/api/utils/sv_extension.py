@@ -6,14 +6,15 @@ from typing import Any
 import cv2
 import matplotlib.pyplot as plt
 import numpy as np
+import scipy
 import supervision as sv
 
 
-def annotate(image: np.ndarray,
-             dets: sv.Detections,
-             mask_opacity: float = 0.7,
-             anno_box: bool = True,
-             smart_label: bool = True) -> np.ndarray:
+def annotate_dets(image: np.ndarray,
+                  dets: sv.Detections,
+                  mask_opacity: float = 0.7,
+                  anno_box: bool = True,
+                  smart_label: bool = True) -> np.ndarray:
     has_class = dets.class_id is not None
     color_lookup = sv.ColorLookup.TRACK if dets.tracker_id is not None else (
         sv.ColorLookup.CLASS if dets.mask is None and has_class else sv.ColorLookup.INDEX)
@@ -31,16 +32,48 @@ def annotate(image: np.ndarray,
         anno_label = sv.LabelAnnotator(color_lookup=color_lookup, smart_position=smart_label)
         labels = [f"{score:.2f}" for score in dets.confidence]
         # class_name
-        if has_class and "class_name" in dets.metadata:
-            labels = [" ".join(fields) for fields in zip(dets.metadata["class_name"][dets.class_id], labels)]
+        cls_name = get_class_name(dets)
+        if cls_name:
+            labels = [" ".join(fields) for fields in zip(cls_name, labels)]
         image = anno_label.annotate(image, detections=dets, labels=labels)
 
     return image
 
 
-def resize_mask(mask: np.ndarray,
-                img_size: tuple[int, int]):
-    return cv2.resize(mask.astype(np.uint8), img_size).astype(bool)
+def annotate_kps(image: np.ndarray,
+                 kps: sv.KeyPoints,
+                 radius: float = 4,
+                 cmap_cossim: str = "rainbow"):
+    image = image.copy()
+
+    desc = kps.data.get("descriptor")
+    if desc is not None:
+        score = (desc * desc[:, :1]).sum(axis=-1)
+        color = plt.get_cmap(cmap_cossim)(score)[..., 2::-1] * 255
+        xy = kps.xy.astype(int)
+        for i in range(len(color)):
+            for j in range(len(color[i])):
+                cv2.circle(image, xy[i, j], radius, color[i, j], -1)
+
+    else:
+        anno_vex = sv.VertexAnnotator(radius=radius)
+        image = anno_vex.annotate(image, kps)
+
+    return image
+
+
+def box3d_area(xyzxyz: np.ndarray) -> np.ndarray:
+    """ :param xyzxyz: shape = (N, 6) """
+    return np.prod(xyzxyz[..., 3:] - xyzxyz[..., :3], axis=-1)
+
+
+def box3d_iou_batch(boxes1: np.ndarray,
+                    boxes2: np.ndarray) -> np.ndarray:
+    """ :param boxes1, boxes2: `xyzxyz` format, shape = (N, 6) """
+    inter = np.concatenate([np.maximum(boxes1[..., :3], boxes2[..., :3]),
+                            np.minimum(boxes1[..., 3:], boxes2[..., 3:])], axis=-1)
+    inter_vol = box3d_area(inter).clip(min=0)
+    return inter_vol / (box3d_area(boxes1) + box3d_area(boxes2) - inter_vol)
 
 
 def crop_images(image: np.ndarray,
@@ -58,6 +91,61 @@ def crop_image_assign(image: np.ndarray,
                       xyxy: np.ndarray):
     x_min, y_min, x_max, y_max = xyxy
     image[y_min:y_max, x_min:x_max] = patch
+
+
+def draw_matches(img1: np.ndarray,
+                 img2: np.ndarray,
+                 kps1: sv.KeyPoints,
+                 kps2: sv.KeyPoints,
+                 matches: list[cv2.DMatch]) -> np.ndarray:
+    def cvt_kps(kps: sv.KeyPoints):
+        return [
+            cv2.KeyPoint(*kps.xy[0, i], size=1, response=kps.confidence[0, i])
+            for i in range(len(kps.xy[0]))
+        ]
+
+    return cv2.drawMatches(img1, cvt_kps(kps1), img2, cvt_kps(kps2), matches, None)
+
+
+def get_class_name(dets: sv.Detections) -> list[str]:
+    if dets.class_id is None: return
+    cls_name = dets.metadata.get("class_name")
+    if cls_name is None: return
+    return [cls_name[i] for i in dets.class_id]
+
+
+def geo_sem_similarity(dets1: sv.Detections,
+                       dets2: sv.Detections,
+                       cross: bool,
+                       semantic_field: str = "semantic",
+                       iou_thresh: float = 0.01):
+    """ :return: geometric and semantic similarity matrix"""
+    dets1_feat = dets1.data[semantic_field]
+    dets2_feat = dets2.data[semantic_field]
+    dets1_mask_area = dets1.area
+    dets2_mask_area = dets2.area
+
+    if cross:
+        sim = np.zeros([len(dets1), len(dets2), 2], dtype=np.float32)
+        for i in range(len(dets1)):
+            # filter by bbox iou
+            is_valid = sv.box_iou_batch(dets1.xyxy[i, None], dets2.xyxy)[0] > iou_thresh
+            dets2_mask = dets2.mask[is_valid]
+            if not dets2_mask.size: continue
+            # geometric similarity
+            sim[i, is_valid, 0] = (dets1.mask[i] & dets2_mask).sum(axis=(1, 2)) / np.minimum(dets1_mask_area[i], dets2_mask_area[is_valid])
+            # semantic similarity
+            sim[i, is_valid, 1] = dets2_feat[is_valid] @ dets1_feat[i]
+
+    else:
+        assert len(dets1) == len(dets2), "dets1 and dets2 must have the same length for cross=False"
+        sim = np.zeros([len(dets1), 2], dtype=np.float32)
+        # geometric similarity
+        sim[:, 0] = (dets1.mask & dets2.mask).sum(axis=(1, 2)) / np.minimum(dets1_mask_area, dets2_mask_area)
+        # semantic similarity
+        sim[:, 1] = (dets1_feat * dets2_feat).sum(axis=-1)
+
+    return sim
 
 
 def kernel_select(array, k, s=1, d=1, pad_value=0, axis=0):
@@ -81,6 +169,24 @@ def kernel_select(array, k, s=1, d=1, pad_value=0, axis=0):
     array_pad = np.pad(array, constant_values=pad_value,
                        pad_width=np.array(list(-pad_width) + [0] * (array.ndim - 2))[:, None].repeat(2, -1))
     return np.stack([array_pad[y:y + h:s, x:x + w:s] for x, y in kernel - pad_width], axis=axis)
+
+
+def match_kps(kps1: sv.KeyPoints,
+              kps2: sv.KeyPoints,
+              conf_thresh: float = 0.7,
+              dist_type: str = "cossim") -> list[cv2.DMatch]:
+    assert len(kps1) == len(kps2) == 1, "Only support single object"
+    desc1, desc2 = kps1.data["descriptor"][0], kps2.data["descriptor"][0]
+
+    if dist_type == "cossim":
+        distance = - desc1 @ desc2.T
+    else:
+        raise NotImplementedError(f"Unsupported distance type: {dist_type}")
+
+    idx, matches = scipy.optimize.linear_sum_assignment(-distance)
+    dist = distance[idx, matches]
+    mask = dist > conf_thresh
+    return [cv2.DMatch(idx[i], matches[i], 0, dist[i]) for i in np.where(mask)[0]]
 
 
 def refine_masks_by_ns(dets: sv.Detections,
@@ -131,52 +237,9 @@ def refine_masks_by_connectivity(dets: sv.Detections,
     return dets[valid_id]
 
 
-def geo_sem_similarity(dets1: sv.Detections,
-                       dets2: sv.Detections,
-                       cross: bool,
-                       semantic_field: str = "semantic",
-                       iou_thresh: float = 0.01):
-    """ :return: geometric and semantic similarity matrix"""
-    dets1_feat = dets1.data[semantic_field]
-    dets2_feat = dets2.data[semantic_field]
-    dets1_mask_area = dets1.area
-    dets2_mask_area = dets2.area
-
-    if cross:
-        sim = np.zeros([len(dets1), len(dets2), 2], dtype=np.float32)
-        for i in range(len(dets1)):
-            # filter by bbox iou
-            is_valid = sv.box_iou_batch(dets1.xyxy[i, None], dets2.xyxy)[0] > iou_thresh
-            dets2_mask = dets2.mask[is_valid]
-            if not dets2_mask.size: continue
-            # geometric similarity
-            sim[i, is_valid, 0] = (dets1.mask[i] & dets2_mask).sum(axis=(1, 2)) / np.minimum(dets1_mask_area[i], dets2_mask_area[is_valid])
-            # semantic similarity
-            sim[i, is_valid, 1] = dets2_feat[is_valid] @ dets1_feat[i]
-
-    else:
-        assert len(dets1) == len(dets2), "dets1 and dets2 must have the same length for cross=False"
-        sim = np.zeros([len(dets1), 2], dtype=np.float32)
-        # geometric similarity
-        sim[:, 0] = (dets1.mask & dets2.mask).sum(axis=(1, 2)) / np.minimum(dets1_mask_area, dets2_mask_area)
-        # semantic similarity
-        sim[:, 1] = (dets1_feat * dets2_feat).sum(axis=-1)
-
-    return sim
-
-
-def box3d_area(xyzxyz: np.ndarray) -> np.ndarray:
-    """ :param xyzxyz: shape = (N, 6) """
-    return np.prod(xyzxyz[..., 3:] - xyzxyz[..., :3], axis=-1)
-
-
-def box3d_iou_batch(boxes1: np.ndarray,
-                    boxes2: np.ndarray) -> np.ndarray:
-    """ :param boxes1, boxes2: `xyzxyz` format, shape = (N, 6) """
-    inter = np.concatenate([np.maximum(boxes1[..., :3], boxes2[..., :3]),
-                            np.minimum(boxes1[..., 3:], boxes2[..., 3:])], axis=-1)
-    inter_vol = box3d_area(inter).clip(min=0)
-    return inter_vol / (box3d_area(boxes1) + box3d_area(boxes2) - inter_vol)
+def resize_mask(mask: np.ndarray,
+                img_size: tuple[int, int]):
+    return cv2.resize(mask.astype(np.uint8), img_size).astype(bool)
 
 
 def plot_images_grid(images: list[np.ndarray],

@@ -4,7 +4,9 @@ from pathlib import Path
 from typing import Callable
 
 import numpy as np
+import torch
 
+from . import utils
 from .third_party.contact_graspnet_pytorch import config_utils
 from .third_party.contact_graspnet_pytorch.checkpoints import CheckpointIO
 from .third_party.contact_graspnet_pytorch.contact_grasp_estimator import GraspEstimator
@@ -24,7 +26,11 @@ class ContactGraspNet:
         :param ckpt_dir: checkpoint directory
         """
         self.estimator = GraspEstimator(config_utils.load_config(ckpt_dir, batch_size=1))
-        CheckpointIO(checkpoint_dir=str(ckpt_dir / "checkpoints"), model=self.estimator.model).load('model.pt')
+        weight_file = utils.download_checkpoint(
+            "https://github.com/elchun/contact_graspnet_pytorch/raw/main/checkpoints/contact_graspnet/checkpoints/model.pt",
+            filename="contact_graspnet.pt"
+        )
+        CheckpointIO(checkpoint_dir=weight_file.parent, model=self.estimator.model).load(weight_file.name)
 
     def __call__(self,
                  pcd: np.ndarray,

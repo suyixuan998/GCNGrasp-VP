@@ -4,6 +4,8 @@ import numpy as np
 import supervision as sv
 from groundingdino.util import inference
 
+from . import utils
+
 
 @dataclass
 class GroundingDINO:
@@ -17,8 +19,9 @@ class GroundingDINO:
     def __post_init__(self):
         # Require to connect to Huggingface
         # from groundingdino.config import GroundingDINO_SwinB_cfg
-        self.model = inference.Model(f"checkpoints/grounding_dino/GroundingDINO_{self.encoder}.py",
-                                     f"checkpoints/groundingdino_{self.encoder.lower()}.pth")
+        weight_file = utils.download_checkpoint(
+            f"https://github.com/IDEA-Research/GroundingDINO/releases/download/v0.1.0-alpha2/groundingdino_{self.encoder.lower()}.pth")
+        self.model = inference.Model(f"checkpoints/grounding_dino/GroundingDINO_{self.encoder}.py", weight_file)
 
     def __call__(self,
                  image: np.ndarray,

@@ -235,7 +235,9 @@ class Camera:
     def unproject(self, pixels: np.ndarray) -> np.ndarray:
         """ Unproject 2D image plane to 3D points """
         pixels = pixels.astype(np.float32)
-        return cv2.remap(self._unproj[..., :2], pixels[..., 0], pixels[..., 1], interpolation=cv2.INTER_LINEAR)
+        return cv2.remap(
+            self._unproj[..., :2], pixels[..., 0], pixels[..., 1], interpolation=cv2.INTER_LINEAR
+        ).reshape(*pixels.shape)
 
 
 @dataclass

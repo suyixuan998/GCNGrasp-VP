@@ -3,6 +3,8 @@ from __future__ import annotations
 import os
 import time
 
+import torch
+
 from .path_extension import Path
 
 os.environ["HF_ENDPOINT"] = "https://hf-mirror.com"
@@ -14,6 +16,16 @@ def clean_cached_properties(obj: object,
     for attr in attributes:
         if attr in obj.__dict__: delattr(obj, attr)
     return obj
+
+
+def download_checkpoint(url: str,
+                        filename: str = None) -> Path:
+    filename = filename or url.split("/")[-1]
+    dst = Path(torch.hub.get_dir()) / "checkpoints" / filename
+    if not dst.exists():
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        torch.hub.download_url_to_file(url, dst)
+    return dst.resolve()
 
 
 def get_tensor_args():

@@ -103,7 +103,9 @@ class SE3:
         return T
 
     @classmethod
-    def from_config(cls, value: str | list[float] | np.ndarray) -> np.ndarray:
+    def from_config(cls,
+                    value: str | list[float] | np.ndarray,
+                    euler_seq: str = "XYZ") -> np.ndarray:
         """ Parse a transformation from string or list/array to a 4x4 matrix. """
         T = np.eye(4, dtype=np.float32)
         if isinstance(value, str):
@@ -118,7 +120,7 @@ class SE3:
                 R: SO3 = None
                 # R = roll, pitch, yaw
                 if size == 6:
-                    R = SO3.from_euler("XYZ", value[3:], degrees=True)
+                    R = SO3.from_euler(euler_seq, value[3:], degrees=True)
                 # R = qw, qx, qy, qz
                 elif size == 7:
                     R = SO3.from_quat(np.append(value[4:], value[3]))
@@ -149,10 +151,10 @@ class SE3:
 
     @classmethod
     def mean(cls, Ts: np.ndarray) -> np.ndarray:
-        T = np.eye(4, dtype=np.float32)
-        T[:3, 3] = Ts[:, :3, 3].mean(axis=0)
-        T[:3, :3] = SO3.from_quat(SO3.from_matrix(Ts[:, :3, :3]).as_quat().mean(axis=0)).as_matrix()
-        return T
+        return cls.from_rot_trans(
+            SO3.from_quat(SO3.from_matrix(Ts[:, :3, :3]).as_quat().mean(axis=0)).as_matrix(),
+            Ts[:, :3, 3].mean(axis=0)
+        )
 
     @classmethod
     def random(cls, n: int = 1):
@@ -206,16 +208,12 @@ class SE3:
     def vec2mat(cls,
                 T: np.ndarray,
                 scalar_first: bool = True) -> np.ndarray:
-        mat = np.zeros([*T.shape[:-1], 4, 4], dtype=np.float32)
-        assert mat.ndim <= 3, "Only support single vector or batch of vectors."
-        mat[..., -1, -1] = 1
-        mat[..., :3, 3] = T[..., :3]
-
+        assert T.ndim <= 2, "Only support single vector or batch of vectors."
         try:
-            mat[..., :3, :3] = SO3.from_quat(T[..., 3:], scalar_first=scalar_first).as_matrix()
+            R = SO3.from_quat(T[..., 3:], scalar_first=scalar_first).as_matrix()
         except TypeError:
-            mat[..., :3, :3] = SO3.from_quat(T[..., [4, 5, 6, 3]] if scalar_first else T[..., 3:]).as_matrix()
-        return mat
+            R = SO3.from_quat(T[..., [4, 5, 6, 3]] if scalar_first else T[..., 3:]).as_matrix()
+        return cls.from_rot_trans(R, T[..., :3])
 
 
 class TFmanager:

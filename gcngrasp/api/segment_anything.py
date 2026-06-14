@@ -94,7 +94,8 @@ class SegmentAnythingV2:
         encoder_type = {"tiny": "t", "small": "s", "base_plus": "b+", "large": "l"}
         assert encoder in encoder_type
 
-        checkpoint = f"checkpoints/sam2.1_hiera_{encoder}.pt"
+        checkpoint = utils.download_checkpoint(
+            f"https://dl.fbaipublicfiles.com/segment_anything_2/092824/sam2.1_hiera_{encoder}.pt")
         model_cfg = f"configs/sam2.1/sam2.1_hiera_{encoder_type[encoder]}.yaml"
         self.model = build_sam2(model_cfg, checkpoint)
 
