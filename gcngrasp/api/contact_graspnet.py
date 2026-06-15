@@ -19,13 +19,12 @@ GRIPPER = grasp_pose.TwoFingerGripper(len_finger=.0469, len_handle=.0584, thickn
 
 class ContactGraspNet:
 
-    def __init__(self,
-                 ckpt_dir: Path = Path("checkpoints/contact_graspnet")):
+    def __init__(self):
         """
         Refer to contact_graspnet_pytorch/inference.py for more details.
-        :param ckpt_dir: checkpoint directory
         """
-        self.estimator = GraspEstimator(config_utils.load_config(ckpt_dir, batch_size=1))
+        config_dir = Path(__file__).parent / "third_party/config"
+        self.estimator = GraspEstimator(config_utils.load_config(config_dir / "contact_graspnet", batch_size=1))
         weight_file = utils.download_checkpoint(
             "https://github.com/elchun/contact_graspnet_pytorch/raw/main/checkpoints/contact_graspnet/checkpoints/model.pt",
             filename="contact_graspnet.pt"

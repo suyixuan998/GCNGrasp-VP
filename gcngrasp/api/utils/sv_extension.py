@@ -48,7 +48,7 @@ def annotate_kps(image: np.ndarray,
 
     desc = kps.data.get("descriptor")
     if desc is not None:
-        score = (desc * desc[:, :1]).sum(axis=-1)
+        score = (desc * desc[:1]).sum(axis=-1)
         color = plt.get_cmap(cmap_cossim)(score)[..., 2::-1] * 255
         xy = kps.xy.astype(int)
         for i in range(len(color)):
@@ -60,6 +60,15 @@ def annotate_kps(image: np.ndarray,
         image = anno_vex.annotate(image, kps)
 
     return image
+
+
+def annotate_matches(img1: np.ndarray,
+                     img2: np.ndarray,
+                     kps1: sv.KeyPoints,
+                     kps2: sv.KeyPoints,
+                     matches: list[cv2.DMatch]) -> np.ndarray:
+    process_kps = lambda kps: sum(kps_sv2cv(kps), [])
+    return cv2.drawMatches(img1, process_kps(kps1), img2, process_kps(kps2), matches, None)
 
 
 def box3d_area(xyzxyz: np.ndarray) -> np.ndarray:
@@ -90,21 +99,7 @@ def crop_image_assign(image: np.ndarray,
                       patch: np.ndarray,
                       xyxy: np.ndarray):
     x_min, y_min, x_max, y_max = xyxy
-    image[y_min:y_max, x_min:x_max] = patch
-
-
-def draw_matches(img1: np.ndarray,
-                 img2: np.ndarray,
-                 kps1: sv.KeyPoints,
-                 kps2: sv.KeyPoints,
-                 matches: list[cv2.DMatch]) -> np.ndarray:
-    def cvt_kps(kps: sv.KeyPoints):
-        return [
-            cv2.KeyPoint(*kps.xy[0, i], size=1, response=kps.confidence[0, i])
-            for i in range(len(kps.xy[0]))
-        ]
-
-    return cv2.drawMatches(img1, cvt_kps(kps1), img2, cvt_kps(kps2), matches, None)
+    image[y_min: y_max, x_min: x_max] = patch
 
 
 def get_class_name(dets: sv.Detections) -> list[str]:
@@ -117,11 +112,10 @@ def get_class_name(dets: sv.Detections) -> list[str]:
 def geo_sem_similarity(dets1: sv.Detections,
                        dets2: sv.Detections,
                        cross: bool,
-                       semantic_field: str = "semantic",
                        iou_thresh: float = 0.01):
     """ :return: geometric and semantic similarity matrix"""
-    dets1_feat = dets1.data[semantic_field]
-    dets2_feat = dets2.data[semantic_field]
+    dets1_feat = dets1.data["semantic"]
+    dets2_feat = dets2.data["semantic"]
     dets1_mask_area = dets1.area
     dets2_mask_area = dets2.area
 
@@ -171,21 +165,40 @@ def kernel_select(array, k, s=1, d=1, pad_value=0, axis=0):
     return np.stack([array_pad[y:y + h:s, x:x + w:s] for x, y in kernel - pad_width], axis=axis)
 
 
+def kps_sv2cv(kps: sv.KeyPoints) -> list[list[cv2.KeyPoint]]:
+    n, m = kps.xy.shape[:2]
+    class_id = kps.class_id
+    response = kps.confidence
+    angle = kps.data.get("angle")
+    octave = kps.data.get("octave")
+    size = kps.data.get("size")
+    return [
+        [cv2.KeyPoint(
+            *kps.xy[i, j],
+            size=size[i, j] if size is not None else 1,
+            angle=angle[i, j] if angle is not None else -1.,
+            response=response[i, j] if response is not None else 0.,
+            octave=octave[i, j] if octave is not None else 0,
+            class_id=class_id[i, j] if class_id is not None else -1
+        ) for j in range(m)] for i in range(n)
+    ]
+
+
 def match_kps(kps1: sv.KeyPoints,
               kps2: sv.KeyPoints,
-              conf_thresh: float = 0.7,
+              dist_thresh: float = 0.15,
               dist_type: str = "cossim") -> list[cv2.DMatch]:
-    assert len(kps1) == len(kps2) == 1, "Only support single object"
-    desc1, desc2 = kps1.data["descriptor"][0], kps2.data["descriptor"][0]
+    assert kps1.xy.shape[1] == kps2.xy.shape[1] == 1
+    desc1, desc2 = kps1.data["descriptor"][:, 0], kps2.data["descriptor"][:, 0]
 
     if dist_type == "cossim":
-        distance = - desc1 @ desc2.T
+        distance = .5 - desc1 @ desc2.T / 2
     else:
         raise NotImplementedError(f"Unsupported distance type: {dist_type}")
 
-    idx, matches = scipy.optimize.linear_sum_assignment(-distance)
+    idx, matches = scipy.optimize.linear_sum_assignment(distance)
     dist = distance[idx, matches]
-    mask = dist > conf_thresh
+    mask = dist < dist_thresh
     return [cv2.DMatch(idx[i], matches[i], 0, dist[i]) for i in np.where(mask)[0]]
 
 

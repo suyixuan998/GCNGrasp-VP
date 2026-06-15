@@ -22,10 +22,18 @@ def download_checkpoint(url: str,
                         filename: str = None) -> Path:
     filename = filename or url.split("/")[-1]
     dst = Path(torch.hub.get_dir()) / "checkpoints" / filename
+    dst = dst.resolve()
+
     if not dst.exists():
         dst.parent.mkdir(parents=True, exist_ok=True)
-        torch.hub.download_url_to_file(url, dst)
-    return dst.resolve()
+
+        if "drive.google" in url:
+            import gdown
+            gdown.download(url, str(dst), quiet=False)
+        else:
+            torch.hub.download_url_to_file(url, dst)
+
+    return dst
 
 
 def get_tensor_args():

@@ -24,6 +24,12 @@ def binary(self: Path, data=None, **kwargs):
         if data is None else self.write_bytes(pickle.dumps(data, **kwargs))
 
 
+def depth_inpaint(depth: np.ndarray,
+                  radius: int = 5) -> np.ndarray:
+    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (radius,) * 2)
+    return cv2.morphologyEx(depth, cv2.MORPH_CLOSE, kernel)
+
+
 @dataclass
 class Frame:
     camera: "Camera"
@@ -121,9 +127,10 @@ class Camera:
     img_size: list[int]
     intrinsics: list[float]
     dist_coeffs: list[float] = None
-    # Optional parameters for depth cameras
+    # Optional parameters for depth processing
     depth_scale: float = None
     depth_range: list[float] = None
+    depth_inpaint: int = None       # pixels
 
     def __post_init__(self):
         assert len(self.img_size) == 2, "Image size must be a tuple of (width, height)"
@@ -198,6 +205,9 @@ class Camera:
 
         if "int" in str(depth_or_file.dtype):
             depth_or_file = depth_or_file.astype(np.float32) / self.depth_scale
+
+        if self.depth_inpaint is not None:
+            depth_or_file = depth_inpaint(depth_or_file, self.depth_inpaint)
 
         if self.depth_range is not None:
             depth_or_file = np.where(
