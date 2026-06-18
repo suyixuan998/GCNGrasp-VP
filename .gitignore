@@ -3,6 +3,7 @@ dataset
 
 # Agents
 .codegraph
+.omo
 .sisyphus
 
 # Byte-compiled
