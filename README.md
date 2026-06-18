@@ -2,6 +2,7 @@
 
 [![arXiv](https://img.shields.io/badge/arXiv-2606.19091-red?style=flat&logo=arxiv)](https://arxiv.org/abs/2606.19091)
 [![HuggingFace](https://img.shields.io/badge/HuggingFace-Model-yellow?logo=huggingface)](https://huggingface.co/TongZJ/GCNGrasp-v2)
+[![Video](https://img.shields.io/badge/%20Video-Bilibili-00A1D6?logo=bilibili&logoColor=white)](https://www.bilibili.com/video/BV1ewjw6qEbY)
 
 🎉 **Congratulations! This paper has been accepted by IROS 2026!**
 
