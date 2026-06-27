@@ -11,12 +11,9 @@ SO3 = scipy.spatial.transform.Rotation
 
 def align_pcd(pcd1: np.ndarray,
               pcd2: np.ndarray,
-              method: str,
-              mask: np.ndarray = None):
+              method: str):
     """ :return: 4x4 transformation matrix T such that $T @ pcd1 = pcd2$ """
-    if mask is not None: pcd1, pcd2 = pcd1[mask], pcd2[mask]
     assert pcd1.shape[-1] == 3 and pcd1.size == pcd2.size
-    T = np.eye(4, dtype=np.float32)
 
     if method == "linear-reg":
         import sklearn
@@ -44,14 +41,12 @@ def align_pcd(pcd1: np.ndarray,
 
     else:
         raise NotImplementedError(f"Method {method} is not implemented.")
-    T[:3, :3] = R
-    T[:3, 3] = t
-    return T
+    return SE3.from_rot_trans(R, t)
 
 
-def interp_rotation(R_src: np.ndarray,
-                    R_dst: np.ndarray,
-                    n: int) -> np.ndarray:
+def interp_so3(R_src: np.ndarray,
+               R_dst: np.ndarray,
+               n: int) -> np.ndarray:
     q_src, q_dst = map(lambda R: SO3.from_matrix(R).as_quat(), (R_src, R_dst))
     qs = np.linspace(q_src, q_dst, n, endpoint=True)
     return np.stack([SO3.from_quat(q).as_matrix() for q in qs]).astype(np.float32)
@@ -59,21 +54,18 @@ def interp_rotation(R_src: np.ndarray,
 
 def lookat_to_Tcw(pos: np.ndarray,
                   focus: np.ndarray) -> np.ndarray:
-    Tcw = np.eye(4, dtype=np.float32)
-    Tcw[:3, 3] = pos
-    Tcw[:3, 2] = focus - pos
-
-    Tcw[:3, 0] = np.cross(Tcw[:3, 2], np.array([0, 0, 1]))
-    Tcw[:3, 1] = np.cross(Tcw[:3, 2], Tcw[:3, 0])
-    Tcw[:3, :3] /= (np.linalg.norm(Tcw[:3, :3], axis=0, keepdims=True) + 1e-6)
-
-    u, s, vt = np.linalg.svd(Tcw[:3, :3])
-    Tcw[:3, :3] = u @ vt
-    return Tcw
+    Rcw = np.stack([np.zeros(3), [0, 0, -1], focus - pos], axis=-1)
+    return SE3.from_rot_trans(normalize_so3(Rcw, axis_base=2), pos)
 
 
-def normalize_rotation(R: np.ndarray) -> np.ndarray:
+def normalize_so3(R: np.ndarray,
+                  axis_base: int = None) -> np.ndarray:
     """ Normalize a rotation matrix to ensure it is orthogonal and has determinant 1 """
+    if axis_base is not None:
+        for i in range(axis_base, axis_base + 2):
+            i, j, k = np.arange(i, i + 3) % 3
+            R[..., j] = np.cross(R[..., k], R[..., i])
+        R /= np.linalg.norm(R, axis=0, keepdims=True) + 1e-6
     u, s, vt = np.linalg.svd(R)
     return u @ vt
 
@@ -96,7 +88,7 @@ class SE3:
     def from_rot_trans(cls,
                        R: np.ndarray,
                        t: np.ndarray) -> np.ndarray:
-        T = np.zeros([*t.shape[:-1], 4, 4], dtype=np.float32)
+        T = np.zeros([*R.shape[:-2], 4, 4], dtype=np.float32)
         T[..., :3, :3] = R
         T[..., :3, 3] = t
         T[..., -1, -1] = 1

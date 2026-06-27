@@ -5,13 +5,13 @@ import pickle
 import time
 import warnings
 from dataclasses import dataclass, field
+from pathlib import Path
 
 import cv2
 import matplotlib.pyplot as plt
 import numpy as np
 import open3d as o3d
 import yaml
-from pathlib import Path
 
 T_CAM_IMU = np.array([[0, 0, 1, 0],
                       [-1, 0, 0, 0],
@@ -130,7 +130,7 @@ class Camera:
     # Optional parameters for depth processing
     depth_scale: float = None
     depth_range: list[float] = None
-    depth_inpaint: int = None       # pixels
+    depth_inpaint: int = None  # pixels
 
     def __post_init__(self):
         assert len(self.img_size) == 2, "Image size must be a tuple of (width, height)"
@@ -200,7 +200,7 @@ class Camera:
                       depth_or_file: str | np.ndarray) -> np.ndarray:
         """ Process depth map from file or numpy array """
         if not isinstance(depth_or_file, np.ndarray):
-            depth_or_file = cv2.imread(depth_or_file, cv2.IMREAD_UNCHANGED)
+            depth_or_file = cv2.imread(str(depth_or_file), cv2.IMREAD_UNCHANGED)
         depth_or_file = cv2.resize(depth_or_file, self.img_size)
 
         if "int" in str(depth_or_file.dtype):
@@ -221,7 +221,7 @@ class Camera:
 
     def render_depth(self,
                      pcd: np.ndarray,
-                     return_vis_ratio: bool = False) -> np.ndarray:
+                     return_vis_ratio: bool = False) -> tuple[np.ndarray, np.ndarray]:
         """
         Rendering the depth map corresponding to 3D points
         :returns: pixels, depth, [vis_ratio]
@@ -269,6 +269,20 @@ class Pinhole(Camera):
         tan_theta = np.tan(self.fov.min() / 2).item()
         return max(radius + (self.depth_range[0] if self.depth_range else 0),
                    radius / (1 - border_margin * 2) / tan_theta)
+
+    def draw_se3(self,
+                 image: np.ndarray,
+                 Ts: np.ndarray,
+                 length: float,
+                 thickness: int = 3) -> np.ndarray:
+        Ts = Ts[None] if Ts.ndim == 2 else Ts
+        K = self.camera_matrix
+        dist = np.array(self.dist_coeffs, dtype=np.float32) if self.dist_coeffs else None
+        for T in Ts.astype(np.float32):
+            R, t = T[:3, :3], T[:3, 3]
+            rvec, _ = cv2.Rodrigues(R)
+            cv2.drawFrameAxes(image, K, dist, rvec, t, length, thickness)
+        return image
 
     @property
     def fov(self) -> np.ndarray:

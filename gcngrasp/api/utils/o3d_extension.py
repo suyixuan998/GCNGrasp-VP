@@ -25,6 +25,8 @@ CYLINDER_ENDPOINT[:, 2] = -.5, .5
 """
 BBOX_LINES = np.array([[0, 1], [0, 2], [0, 3], [1, 6], [1, 7], [2, 5], [2, 7], [3, 5], [3, 6], [4, 5], [4, 6], [4, 7]])
 
+o3d_reg = o3d.pipelines.registration
+
 
 def auto_render_color(img_size: list[int],
                       geometries: list[o3d.geometry.Geometry]) -> np.ndarray:
@@ -51,9 +53,9 @@ def concat_to_trimesh(geos: list[o3d.geometry.Geometry3D]) -> trimesh.Scene:
 
 
 def correct_obb(box: o3d.geometry.OrientedBoundingBox) -> o3d.geometry.OrientedBoundingBox:
-    from .pose_tf import rota_toward_identity
+    from . import pose_tf
 
-    R_pcd = rota_toward_identity(np.asarray(box.R))
+    R_pcd = pose_tf.rota_toward_identity(np.asarray(box.R))
     return o3d.geometry.OrientedBoundingBox(
         center=np.asarray(box.center),
         R=box.R @ R_pcd.T,
@@ -66,11 +68,10 @@ def create_arrow(start: np.ndarray,
                  radius: float = 0.002,
                  color: tuple = (1, 0, 0)) -> o3d.geometry.TriangleMesh:
     """ Create an Open3D TriangleMesh arrow from start to end """
-    from .pose_tf import align_pcd
-
-    length = np.linalg.norm(end - start)
+    from . import pose_tf
 
     # z-axis arrow
+    length = np.linalg.norm(end - start)
     arrow = o3d.geometry.TriangleMesh.create_arrow(
         cylinder_radius=radius, cone_radius=radius * 2,
         cylinder_height=max(1e-6, length - radius * 2), cone_height=radius * 5, resolution=20
@@ -79,7 +80,7 @@ def create_arrow(start: np.ndarray,
 
     # rotate the arrow to align with the vector
     arrow.translate([0, 0, -length / 2])
-    arrow.transform(align_pcd(CYLINDER_ENDPOINT * length, np.stack([start, end]), method="sim3"))
+    arrow.transform(pose_tf.align_pcd(CYLINDER_ENDPOINT * length, np.stack([start, end]), method="sim3"))
     return arrow
 
 
@@ -113,16 +114,13 @@ def create_camera(Tcw: np.ndarray,
     faces = np.concatenate([faces, faces[..., ::-1]], axis=0)
 
     # initialize the TriangleMesh object
-    trimesh = o3d.geometry.TriangleMesh(
-        vertices=o3d.utility.Vector3dVector(vertices),
-        triangles=o3d.utility.Vector3iVector(faces)
-    )
-    trimesh.compute_vertex_normals()
+    mesh = from_mesh_array(vertices, faces)
+    mesh.compute_vertex_normals()
 
     # set colors for the near and far planes
     colors = np.stack([color_far, color_near], axis=0).repeat(4, axis=0)
-    trimesh.vertex_colors = o3d.utility.Vector3dVector(colors)
-    return trimesh.transform(Tcw)
+    mesh.vertex_colors = o3d.utility.Vector3dVector(colors)
+    return mesh.transform(Tcw)
 
 
 def create_coord(T: np.ndarray = None,
@@ -134,7 +132,7 @@ def create_coord(T: np.ndarray = None,
 def create_lineset(points: np.ndarray,
                    thickness: float,
                    lines: np.ndarray = None) -> list[o3d.geometry.TriangleMesh]:
-    from .pose_tf import align_pcd
+    from . import pose_tf
 
     if lines is None:
         lines = np.stack(list(itertools.combinations(np.arange(len(points)), 2)))
@@ -145,7 +143,7 @@ def create_lineset(points: np.ndarray,
         if length < 1e-6: continue
 
         mesh = o3d.geometry.TriangleMesh.create_cylinder(radius=thickness / 2, height=length)
-        mesh.transform(align_pcd(CYLINDER_ENDPOINT * length, pts, method="sim3"))
+        mesh.transform(pose_tf.align_pcd(CYLINDER_ENDPOINT * length, pts, method="sim3"))
         meshes.append(mesh)
     return meshes
 
@@ -166,13 +164,13 @@ def cylinder_query(pcd: np.ndarray,
                    p1: np.ndarray,
                    p2: np.ndarray,
                    r: float = None) -> np.ndarray:
-    from .pose_tf import align_pcd, SE3
+    from . import pose_tf
 
     v = p2 - p1
     height = np.linalg.norm(v)
 
-    T = align_pcd(np.stack([p1, p2]), CYLINDER_ENDPOINT * height, method="sim3")
-    pcd = SE3.transform_pcd(T, pcd)
+    T = pose_tf.align_pcd(np.stack([p1, p2]), CYLINDER_ENDPOINT * height, method="sim3")
+    pcd = pose_tf.SE3.transform_pcd(T, pcd)
     mask = np.abs(pcd[:, 2]) <= height / 2
 
     if r: mask &= np.linalg.norm(pcd[:, :2], axis=1) <= r
@@ -217,12 +215,30 @@ def farthest_point_sampling(pcd: np.ndarray,
     for i in range(num_samples - 1):
         distances = np.minimum(distances, np.linalg.norm(pcd - pcd[indices[i]], axis=1))
         indices[i + 1] = np.argmax(distances)
-
     return indices
 
 
-def from_mesh_array(ver_and_tri: tuple[np.ndarray, np.ndarray]) -> o3d.geometry.TriangleMesh:
-    vertices, triangles = ver_and_tri
+def feature_pcd_registration(src: o3d.geometry.PointCloud,
+                             dst: o3d.geometry.PointCloud,
+                             src_feat: np.ndarray = None,
+                             dst_feat: np.ndarray = None,
+                             radius: float = .05) -> tuple[float, np.ndarray]:
+    if src_feat is None or dst_feat is None:
+        src_feat, dst_feat = map(lambda pcd: o3d_reg.compute_fpfh_feature(
+            pcd, o3d.geometry.KDTreeSearchParamHybrid(radius=radius, max_nn=100)
+        ), (src, dst))
+    src_feat, dst_feat = map(to_feature, (src_feat, dst_feat))
+
+    result: o3d_reg.RegistrationResult = o3d_reg.registration_ransac_based_on_feature_matching(
+        src, dst, src_feat, dst_feat, True, radius,
+        estimation_method=o3d_reg.TransformationEstimationPointToPoint(),
+        checkers=[o3d_reg.CorrespondenceCheckerBasedOnDistance(radius)],
+    )
+    return result.fitness, result.transformation.astype(np.float32)
+
+
+def from_mesh_array(vertices: np.ndarray,
+                    triangles: np.ndarray) -> o3d.geometry.TriangleMesh:
     return o3d.geometry.TriangleMesh(
         vertices=o3d.utility.Vector3dVector(vertices),
         triangles=o3d.utility.Vector3iVector(triangles)
@@ -243,11 +259,28 @@ def from_trimesh(mesh: trimesh.Trimesh) -> o3d.geometry.TriangleMesh:
         vertices=o3d.utility.Vector3dVector(mesh.vertices),
         triangles=o3d.utility.Vector3iVector(mesh.faces)
     )
-
     vc = getattr(mesh.visual, "vertex_colors")
     if vc is not None:
         o3d_mesh.vertex_colors = o3d.utility.Vector3dVector(vc[..., :3] / 255)
     return o3d_mesh
+
+
+def ground_pose(pcd: o3d.geometry.PointCloud,
+                axis_normal: int = 2,
+                R_ref: np.ndarray = None):
+    """ :return: transform matrix from MAP to WORLD """
+    from . import pose_tf
+
+    model, idx = pcd.segment_plane(distance_threshold=0.01, ransac_n=3, num_iterations=1000)
+    normal = model[:3]
+
+    R = R_ref.copy() if R_ref is not None else np.eye(3)
+    if normal @ R[:, axis_normal] < 0: normal *= -1
+    R[:, 2] = normal
+
+    return pose_tf.SE3.from_rot_trans(
+        pose_tf.normalize_so3(R, axis_base=2), to_pcd_array(pcd)[idx].mean(axis=0)
+    )
 
 
 def minimum_2d_bbox_orientation(pcd: np.ndarray) -> np.ndarray:
@@ -285,18 +318,9 @@ def pcd_registration(src: o3d.geometry.PointCloud,
     Point-to-point ICP registration
     :return: fitness, T_src_dst
     """
-    o3d_reg = o3d.pipelines.registration
     # coarse
     if T is None:
-        src_fpfh, dst_fpfh = map(lambda pcd: o3d_reg.compute_fpfh_feature(
-            pcd, o3d.geometry.KDTreeSearchParamHybrid(radius=radius, max_nn=100)
-        ), (src, dst))
-        result: o3d_reg.RegistrationResult = o3d_reg.registration_ransac_based_on_feature_matching(
-            src, dst, src_fpfh, dst_fpfh, True, radius,
-            estimation_method=o3d_reg.TransformationEstimationPointToPoint(),
-            checkers=[o3d_reg.CorrespondenceCheckerBasedOnDistance(radius)],
-        )
-        T = result.transformation
+        T = feature_pcd_registration(src, dst, radius=radius)[1]
     # fine tune
     result: o3d_reg.RegistrationResult = o3d_reg.registration_icp(
         src, dst, radius, T,
@@ -328,19 +352,11 @@ def regularize_pcd_size(pcd: np.ndarray,
         return farthest_point_sampling(pcd, num_samples) if use_fps else np.random.choice(m, num_samples, replace=False)
 
 
-def rgbd2pcd(pointmap: np.ndarray,
-             color: np.ndarray,
-             mask: np.ndarray,
-             pcd: o3d.geometry.PointCloud = None) -> o3d.geometry.PointCloud:
-    """
-    :param pointmap: 2D dense field of points [H, W, 3]
-    :param color: BGR color [H, W, 3]
-    :param mask: mask of the points [H, W]
-    """
-    pcd = pcd or o3d.geometry.PointCloud()
-    pcd.points = o3d.utility.Vector3dVector(pointmap[mask])
-    pcd.colors = o3d.utility.Vector3dVector(color[mask][..., ::-1] / 255)
-    return pcd
+def to_feature(feat: np.ndarray) -> o3d_reg.Feature:
+    if isinstance(feat, o3d_reg.Feature): return feat
+    ret = o3d_reg.Feature()
+    ret.data = feat.T
+    return ret
 
 
 def to_mesh_array(mesh) -> tuple[np.ndarray, np.ndarray]:

@@ -39,9 +39,10 @@ def download_checkpoint(url: str,
 def get_tensor_args():
     import torch
 
-    device = "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu"
+    has_cuda = torch.cuda.is_available()
+    device = "cuda" if has_cuda else "mps" if torch.backends.mps.is_available() else "cpu"
     # bfloat16 is supported on Ampere GPUs (Compute Capability 8.0+)
-    dtype = torch.bfloat16 if torch.cuda.get_device_capability()[0] >= 8 else torch.float16
+    dtype = torch.bfloat16 if has_cuda and torch.cuda.get_device_capability()[0] >= 8 else torch.float16
     return device, dtype
 
 

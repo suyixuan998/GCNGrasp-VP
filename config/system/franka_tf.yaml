@@ -15,7 +15,7 @@ cgn:
 
 # Franka Panda
 hand:
-  robotiq: [ 0, 0, 0, 0, 0, 42 ]
+  robotiq: [ 0, 0, 0, 0, 0, 45 ]
 
 robotiq:
   # D435i
@@ -31,4 +31,4 @@ robotiq:
   # Contact-GraspNet
   cgn: [ 0, -1, 0, 0,
          1, 0, 0, 0,
-         0, 0, 1, 0.0869 ]
+         0, 0, 1, 0.10 ]

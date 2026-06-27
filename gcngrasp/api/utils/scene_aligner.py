@@ -73,7 +73,7 @@ class SceneAligner:
             for f in self.frames_rel:
                 f.depth *= s
                 f.Tcw = Tmw @ f.Tcw
-                f.Tcw[:3, :3] = pose_tf.normalize_rotation(f.Tcw[:3, :3])
+                f.Tcw[:3, :3] = pose_tf.normalize_so3(f.Tcw[:3, :3])
 
     def copy_metadata(self):
         for i in range(len(self)):
