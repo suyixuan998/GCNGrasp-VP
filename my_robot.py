@@ -41,7 +41,7 @@ try:
 
     GripperType = RobotiqGripper
 
-except ImportError as e:
+except (ImportError, OSError) as e:
     print(e)
 
 
@@ -53,7 +53,7 @@ class RobotController:
     def __post_init__(self):
         self.gripper = GripperType()
         self.robot = RobotType()
-        self.robot.go_home()
+        # self.robot.go_home()
         self.rs = RGBDCamera(device_id=0)
 
     @property

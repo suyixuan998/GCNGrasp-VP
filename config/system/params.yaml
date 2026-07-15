@@ -18,8 +18,9 @@ scene:
 
   # noisy pcd processor
   nn_radius: .005
-  nn_k_thresh: 15
+  nn_k_thresh: 18
   # full pcd processor
+  std_ratio: 2.5
   voxel_size: .007
 
 
@@ -30,7 +31,7 @@ planner:
   max_stride: .80    # hard constraint
   min_stride: .10    # discard steps smaller than this
   n_candidates: 50
-  dist_obs: .3
+  dist_obs: .35
   elev_range: [ .15, 1.2 ]
 
   init_stride: .20

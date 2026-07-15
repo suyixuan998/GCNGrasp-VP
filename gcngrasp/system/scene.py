@@ -64,7 +64,8 @@ class Scene:
         config = self.config["scene"]
         self.noisy_pcd_processor = o3de.PointCloudProcessor(
             nn_radius=config["nn_radius"], nn_k_thresh=config["nn_k_thresh"])
-        self.full_pcd_processor = o3de.PointCloudProcessor(voxel_size=config["voxel_size"])
+        self.full_pcd_processor = o3de.PointCloudProcessor(
+            voxel_size=config["voxel_size"], std_ratio=config["std_ratio"])
 
     def add_pcd(self,
                 frame: Frame):
