@@ -5,6 +5,7 @@ numpy<2
 nvitop
 open3d
 opencv-python
+pandas<3
 pyyaml
 scikit-learn
 trimesh

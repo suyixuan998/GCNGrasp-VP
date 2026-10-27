@@ -1,5 +1,6 @@
 3rd_party
 dataset
+!gcngrasp/dataset/
 
 # Agents
 .codegraph
@@ -28,6 +29,7 @@ runs
 install
 
 # Neural Network weights
+weights/
 mobileclip2_b.ts
 *.ckpt
 *.engine

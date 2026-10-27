@@ -1,4 +1,9 @@
-root: /media/tongzj/Data/Information/Data/dataset/TaskGrasp/taskgrasp
-# root: /home/tongzj/workbench/TaskGrasp/taskgrasp
+root: /home/share/GraspGPT_public/data/taskgrasp
 n_points: 4096
 bs_grasp: 25
+num_workers: 4
+# Local adapter: official splits_final/o is held-out object classes.
+# Use fold i0 for the official held-out instance split.
+cache_dir: runs/taskgrasp_cache
+partial_views: 8
+seed: 2025

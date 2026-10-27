@@ -37,36 +37,48 @@ class MainModule(lite.VanillaModule):
 
         pcd_part, pcd_full, grasp = batch["pcd_part"], batch["pcd_full"], batch["grasp"]
         ret_tea = None
+        batch_stu = batch
+
+        def rotate_inputs(pcd):
+            # Affordance targets and geometry must stay in the same frame.
+            if "peak_aff" in batch:
+                pcd, rotated_grasp, peak = utils.random_rotate(pcd, grasp, batch["peak_aff"])
+                return pcd, rotated_grasp, dict(batch, peak_aff=peak)
+            pcd, rotated_grasp = utils.random_rotate(pcd, grasp)
+            return pcd, rotated_grasp, batch
 
         if self.training:
             pcd_infer = (pcd_full if random.random() < self.config["p_pcd_full"] else pcd_part).clone()
-            pcd_infer, grasp = utils.random_rotate(pcd_infer, grasp)
-            ret_stu = self.model(pcd_infer, grasp, **infer_kwargs)
+            pcd_infer, grasp_infer, batch_stu = rotate_inputs(pcd_infer)
+            ret_stu = self.model(pcd_infer, grasp_infer, **infer_kwargs)
 
         else:
             with torch.inference_mode():
-                ret_stu = self.model(*utils.random_rotate(pcd_part, grasp), **infer_kwargs)
+                pcd_infer, grasp_infer, batch_stu = rotate_inputs(pcd_part)
+                ret_stu = self.model(pcd_infer, grasp_infer, **infer_kwargs)
                 if stage == "test":
-                    ret_tea = self.model(*utils.random_rotate(pcd_full, grasp), **infer_kwargs)
+                    pcd_infer, grasp_infer, batch_tea = rotate_inputs(pcd_full)
+                    ret_tea = self.model(pcd_infer, grasp_infer, **infer_kwargs)
 
                     self.item_stack[stage]["full"].push(analysis.dump_prediction(batch, ret_tea["score"]))
                     if ret_tea.get("affordance"):
-                        dp = dist_peak(ret_tea.get("affordance"), batch)
+                        dp = dist_peak(ret_tea.get("affordance"), batch_tea)
                         if len(dp):
                             self.log(f"{stage}/affF/dist_peak", dp.mean(), batch_size=len(dp), prog_bar=True, on_step=False, on_epoch=True)
 
         # dump prediction
         self.item_stack[stage]["part"].push(analysis.dump_prediction(batch, ret_stu["score"].detach()))
         if ret_stu.get("affordance"):
-            dp = dist_peak(ret_stu.get("affordance"), batch)
+            dp = dist_peak(ret_stu.get("affordance"), batch_stu)
             if len(dp):
                 self.log(f"{stage}/affP/dist_peak", dp.mean(), batch_size=len(dp), prog_bar=True, on_step=False, on_epoch=True)
 
-        if stage != "test": return self.loss_fcn(batch, ret_stu, ret_tea)
+        if stage != "test": return self.loss_fcn(batch_stu, ret_stu, ret_tea)
 
     def on_fit_start(self):
         super().on_fit_start()
         self.copy_into_project(self.cfg_col.model_file)
+        self.copy_into_project(self.cfg_col.data_file)
 
     def _on_shared_epoch_end(self, stage: str):
         etype = self.hparams["fold"][0]
@@ -122,6 +134,8 @@ class MainModule(lite.VanillaModule):
             # initialize model
             p = args.resume or args.test
             cfg_col = gcngrasp.ConfigCollector.from_path(p) if p else gcngrasp.ConfigCollector.from_version(args.train)
+            if args.train_config:
+                cfg_col.train_file = gcngrasp.Path(args.train_config)
             if p and args.fold is None: args.fold = cfg_col.fold
             module = cls(cfg_col, args.fold)
         return module
@@ -137,12 +151,20 @@ def parse_args():
     parser.add_argument("--fold", type=str, help="data fold, e.g. o0, t1")
     parser.add_argument("--devices", type=int, nargs="+", help="GPU devices")
     parser.add_argument("--test-bs-div", type=int, default=1, help="test batch size divider")
-    return parser.parse_args()
+    parser.add_argument("--train-config", type=str, help="training YAML override for a new training run")
+    parser.add_argument("--skip-cuda-wait", action="store_true", help="start on a shared GPU without waiting for other Python processes")
+    args = parser.parse_args()
+    if args.train and args.fold is None:
+        parser.error("--fold is required with --train")
+    if args.train_config and not args.train:
+        parser.error("--train-config can only be used with --train")
+    return args
 
 
 if __name__ == '__main__':
     args = parse_args()
-    utils.wait_for_cuda(args.devices, sleep=60, re_pattern="python")
+    if not args.skip_cuda_wait:
+        utils.wait_for_cuda(args.devices, sleep=60, re_pattern="python")
 
     # main
     module = MainModule.from_command(args)

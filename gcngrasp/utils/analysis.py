@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from dataclasses import dataclass
 from functools import cached_property
 from pathlib import Path
@@ -10,7 +12,7 @@ import open3d as o3d
 import pandas as pd
 import torch
 
-from ..api.dataset import task_grasp
+from ..dataset import task_grasp
 from ..api.utils import o3d_extension as o3de
 from ..api.utils import skmetrics
 

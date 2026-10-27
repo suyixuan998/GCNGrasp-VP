@@ -1,0 +1,23 @@
+# Local TaskGrasp adapter; this is not an exact reproduction of the author's loader.
+p_pcd_full: .5
+progress_bar: false
+
+train:
+  seed: 2025
+  epochs: 200
+  batch_size: 8
+  accum_grad: 8
+  output: runs/2aff_o0_local
+  log_every_n_batches: 50
+  loss_weight:
+    tog: 1.
+    affordance: .15
+  metric:
+    monitor: val/part/acc
+    mode: max
+  optimizer:
+    type: AdamW
+    lr0: 0.001
+    lrf: 0.01
+    kwargs:
+      weight_decay: 0.

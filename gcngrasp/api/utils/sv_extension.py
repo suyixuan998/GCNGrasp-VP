@@ -221,8 +221,12 @@ def refine_masks_by_ns(dets: sv.Detections,
         _center = _9nn.shape[0] // 2
         _not_ctr = np.arange(_9nn.shape[0]) != _center
 
-        # Statistically count the neighbors around each point
-        nn = (np.linalg.norm(_9nn[_not_ctr] - _9nn[_center], axis=-1) <= radius).sum(axis=0)
+        # Ignore invalid depth and padded points before subtracting (inf - inf).
+        neighbors, center = _9nn[_not_ctr], _9nn[_center]
+        valid = np.isfinite(neighbors).all(axis=-1) & np.isfinite(center).all(axis=-1)
+        delta = np.zeros_like(neighbors)
+        np.subtract(neighbors, center, out=delta, where=valid[..., None])
+        nn = (valid & (np.linalg.norm(delta, axis=-1) <= radius)).sum(axis=0)
 
         # Apply the clustering result to the mask
         mask_new = np.zeros_like(mask_)

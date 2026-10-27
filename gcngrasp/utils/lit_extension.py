@@ -12,6 +12,26 @@ from ema_pytorch import EMA
 from torch import nn
 
 
+class ConsoleProgress(pl.Callback):
+    """Readable progress for long-running jobs with the terminal bar disabled."""
+
+    def __init__(self, every_n_batches):
+        self.every_n_batches = every_n_batches
+
+    def on_train_batch_end(self, trainer, pl_module, outputs, batch, batch_idx):
+        if trainer.is_global_zero and (batch_idx == 0 or (batch_idx + 1) % self.every_n_batches == 0):
+            loss = outputs["loss"] if isinstance(outputs, dict) else outputs
+            print(f"epoch={trainer.current_epoch + 1}/{trainer.max_epochs} "
+                  f"batch={batch_idx + 1}/{trainer.num_training_batches} "
+                  f"step={trainer.global_step} loss={float(loss):.5f}", flush=True)
+
+    def on_validation_end(self, trainer, pl_module):
+        if trainer.is_global_zero and not trainer.sanity_checking:
+            metrics = {name: round(float(value), 6) for name, value in trainer.callback_metrics.items()
+                       if name.startswith("val/")}
+            print(f"epoch={trainer.current_epoch + 1} validation={metrics}", flush=True)
+
+
 class LazyDataModule(pl.LightningDataModule):
 
     def __init__(self,
@@ -89,6 +109,9 @@ class VanillaModule(pl.LightningModule):
                        callbacks: list[pl.callbacks.Callback] = None) -> dict:
         """ Get pl.Trainer keyword arguments. """
         callbacks = callbacks or []
+        log_every = self.config["train"].get("log_every_n_batches")
+        if log_every:
+            callbacks.append(ConsoleProgress(log_every))
 
         config_metric = self.config["train"].get("metric")
         if config_metric:

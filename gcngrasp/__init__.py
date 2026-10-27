@@ -132,7 +132,7 @@ class ConfigCollector:
         return cls(
             model_file=next(path.glob("model*.yaml")),
             train_file=next(path.glob("train*.yaml")),
-            data_file="config/data.yaml",
+            data_file=path / "data.yaml" if (path / "data.yaml").is_file() else "config/data.yaml",
             fold=Path(path / "hparams.yaml").yaml()["fold"],
             ckpt_best=ckpt_path / "best.ckpt",
             ckpt_last=ckpt_path / "last.ckpt",
